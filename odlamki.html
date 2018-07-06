@@ -1,0 +1,125 @@
+<html>
+<head>
+
+<script type="text/javascript" src="jquery-1.8.2.min.js"></script>
+<script type="text/javascript">
+
+function random_c(p,k){//<p,k>uC
+	return Math.floor(Math.random()*(k-p+1))+p;
+}
+
+function random(p,k){//<p,k)
+	return Math.random()*(k-p)+p;
+}
+
+/*this.rysujKontur=function(canvas,kontur,x,y,kat,kolor){//obiekt konturu, x,y - gdzie wstawiamy
+	if(kontur.length<=0)return 0;
+
+	var px=this.wsp2px({"x":x,"y":y});
+	//var px2;
+	
+	this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+	this.plotno.translate(px.x,px.y);
+	this.plotno.rotate(-kat);
+	
+	this.plotno.beginPath();
+	for(var n=0,l=kontur.length;n<l;n++){
+		if(n>=1){
+			this.plotno.lineTo(kontur[n].x,-kontur[n].y);
+		}else{
+			this.plotno.moveTo(kontur[n].x,-kontur[n].y);
+		}
+	}
+	this.plotno.closePath();
+	
+	if(kontur.length<=2){
+		this.plotno.strokeStyle=kolor;
+		this.plotno.stroke();
+	}else{
+		this.plotno.fillStyle=kolor;
+		this.plotno.fill();
+		this.plotno.strokeStyle="black";
+		this.plotno.stroke();
+	}
+	
+	this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+}*/
+
+function odlamek(){
+	this.pozycja={"x":0,"y":0};//px
+	this.predkosc={"x":0,"y":0};//px
+	this.koncowa_klatka=30;
+	
+	this.klatka=function(dt){
+		this.pozycja.x+=this.predkosc.x*dt;
+		this.pozycja.y+=this.predkosc.y*dt;
+		console.log(this.pozycja);
+	}
+	
+	this.rysuj=function(plotno,centrum,s){
+		plotno.fillStyle="white";
+		plotno.strokeStle="black";
+		plotno.lineWidth=1;
+		plotno.fillRect(this.pozycja.x+centrum.x-s/2,this.pozycja.y+centrum.y-s/2,s,s);
+		plotno.strokeRect(this.pozycja.x+centrum.x-s/2,this.pozycja.y+centrum.y-s/2,s,s);
+	}
+}
+
+$(document).ready(function(){
+	var liczba_klatek=30;
+	var dt=1/30;
+	var sx=200;
+	var sy=200;
+	var v_max=60;
+	var n_odlamkow=15;
+	var rozmiar_odlamka=5;
+	//var rozpad=0.05;
+	
+	var canvas=$("#canvas").attr({
+		"width":sx*liczba_klatek,
+		"height":sy
+	}).css({
+		"border-width":"5px",
+		"border-style":"solid",
+		"border-color":"black"
+	}).get(0);
+	var plotno=canvas.getContext("2d");
+	plotno.fillStyle="rgba(255,255,255,255)";
+	
+	var odlamki=new Array();
+	
+	var a,kat,v;
+	for(var n=0;n<n_odlamkow;n++){
+		a=new odlamek();
+		kat=random(0,2*Math.PI);
+		v=random(0,v_max);
+		a.koncowa_klatka=random_c(liczba_klatek-10,liczba_klatek);
+		a.predkosc.x=Math.sin(kat)*v;
+		a.predkosc.y=Math.cos(kat)*v;
+		odlamki[n]=a;
+	}
+	
+	
+	
+	//var dt=1/30;
+	var centrum=new Object();
+	centrum.y=sy/2;
+	for(var i=0;i<liczba_klatek;i++){
+		centrum.x=i*sx+sx/2;
+		for(n in odlamki){
+			odlamki[n].rysuj(plotno,centrum,rozmiar_odlamka);
+			odlamki[n].klatka(dt);
+			if(odlamki[n].koncowa_klatka<i)delete(odlamki[n]);
+		}
+	}
+	
+});
+
+</script>
+</head>
+<body>
+
+<canvas id="canvas">
+
+</body>
+</html>	

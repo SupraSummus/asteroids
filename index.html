@@ -1,0 +1,1441 @@
+﻿<html>
+<head>
+
+<style type="text/css">
+</style>
+
+<script type="text/javascript" src="jquery-1.8.2.min.js"></script>
+<script type="text/javascript">
+
+function random_c(p,k){//<p,k>uC
+	return Math.floor(Math.random()*(k-p+1))+p;
+}
+function random(p,k){//<p,k)
+	return Math.random()*(k-p)+p;
+}
+
+
+
+var hsv2rgb = function(h,s,v) {
+	//http://schinckel.net/2012/01/10/hsv-to-rgb-in-javascript/
+  //var h = hsv.hue, s = hsv.sat, v = hsv.val;
+  var rgb, i, data = [];
+  if (s === 0) {
+    rgb = [v,v,v];
+  } else {
+    h = h / 60;
+    i = Math.floor(h);
+    data = [v*(1-s), v*(1-s*(h-i)), v*(1-s*(1-(h-i)))];
+    switch(i) {
+      case 0:
+        rgb = [v, data[2], data[0]];
+        break;
+      case 1:
+        rgb = [data[1], v, data[0]];
+        break;
+      case 2:
+        rgb = [data[0], v, data[2]];
+        break;
+      case 3:
+        rgb = [data[0], data[1], v];
+        break;
+      case 4:
+        rgb = [data[2], data[0], v];
+        break;
+      default:
+        rgb = [v, data[0], data[1]];
+        break;
+    }
+  }
+  return rgb;
+};
+
+/*(function() {
+	//https://developer.mozilla.org/pl/docs/DOM/window.requestAnimationFrame
+ 	var requestAnimationFrame =
+ 		window.requestAnimationFrame ||
+ 		window.mozRequestAnimationFrame ||
+ 		window.webkitRequestAnimationFrame ||
+ 		window.msRequestAnimationFrame;
+ 	window.requestAnimationFrame = requestAnimationFrame;
+})();*/
+
+(function(){
+	//http://paulirish.com/2011/requestanimationframe-for-smart-animating/
+	var t=window.requestAnimationFrame       || 
+	      window.webkitRequestAnimationFrame || 
+	      window.mozRequestAnimationFrame    || 
+	      window.oRequestAnimationFrame      || 
+	      window.msRequestAnimationFrame     || 
+	      function( callback ){
+	        window.setTimeout(callback, 1000 / 60);
+	};
+	window.requestAnimationFrame=t;
+})();
+
+function Cialo(){
+	//parametry punktu materialnego
+	this.przysieszenie=new Object();//m/s*s
+		this.przysieszenie.x=0;
+		this.przysieszenie.y=0;
+	this.predkosc=new Object();//m/s
+		this.predkosc.x=0;
+		this.predkosc.y=0;
+	this.pozycja=new Object();//m
+		this.pozycja.x=0;
+		this.pozycja.y=0;
+	//this.masa=1;//kg
+	
+	//parametry bryły sztywnej
+	this.przyspieszenie_katowe=0;//rad/s*s
+	//this.moment_bezwladnosci=1;//kg*m*m
+	this.predkosc_katowa=0;//rad/s
+	this.orientacja=0;//rad - od wektora skierowanego poziomo, w prawo, przeciwzegarowo
+	
+	this.kinematyka=function(dt){//klatka symulacji, bez rysowania
+		//ruch obrotowy
+		this.predkosc_katowa+=this.przyspieszenie_katowe*dt;//calkowanie, dostajemy predkosc
+		this.orientacja+=this.predkosc_katowa*dt;//calkowanie, dostajemy kat
+		this.orientacja%=Math.PI*2;
+		
+		//ruch liniowy
+		this.predkosc.x+=this.przysieszenie.x*dt;//calkowanie, dostajemy predkosc
+		this.predkosc.y+=this.przysieszenie.y*dt;
+		this.pozycja.x+=this.predkosc.x*dt;//calkowanie, dostjemy pozycje
+		this.pozycja.y+=this.predkosc.y*dt;
+		
+		if(this.pozycja.x<this.gra.rysownik.poczatek.x)this.pozycja.x+=this.gra.rysownik.rozmiar.x;//obsluga przejść przez granice pola
+		if(this.pozycja.x>this.gra.rysownik.koniec.x)this.pozycja.x-=this.gra.rysownik.rozmiar.x;
+		if(this.pozycja.y<this.gra.rysownik.poczatek.y)this.pozycja.y+=this.gra.rysownik.rozmiar.y;
+		if(this.pozycja.y>this.gra.rysownik.koniec.y)this.pozycja.y-=this.gra.rysownik.rozmiar.y;
+	}
+	
+	this.rysuj=function(){
+	}
+	
+}
+
+function Statek(gra,id){
+	this.__proto__=new Cialo();//dziedziczenie
+	
+	this.gra=gra;
+	this.id=id;
+	this.kolor;
+	this.typ;
+	
+	this.sterowanie=new Object();//kody kawiszy sterowania
+	this.sterowanie.ciag=-1;
+	this.sterowanie.lewo=-1;
+	this.sterowanie.prawo=-1;
+	this.sterowanie.strzal=-1;
+	
+	this.ciag=0;
+	this.lewo=0;
+	this.prawo=0;
+	
+	//parametry statku
+	//this.maksymalny_czas_ladowania=0.2;//s
+	this.pozostaly_czas_ladowania=0;//s
+	this.wlaczony;
+	//this.maksymalne_przyspieszenie_katowe=3;//rad/s*s
+	//this.maksymalne_przyspieszenie=100;//m/s*s
+	
+	//obrazki
+	this.obrazki=new Object();
+	this.animacje=new Object();
+	//this.img.statek=new Image("statek.png");
+	this.kontur=new Array();
+	this.prawdziwy_kontur=new Array();
+	this.rozmiar={//m
+		"x":this.gra.parametry.statki.rozmiar.x,
+		"y":this.gra.parametry.statki.rozmiar.y
+	};
+	this.maksymalny_promien=0.5*Math.sqrt(this.rozmiar.x*this.rozmiar.x+this.rozmiar.y*this.rozmiar.y);
+	
+	this.przygotuj=function(){
+		//obrazek statku
+		this.animacje.statek=this.gra.rysownik.dodajAnimacje();
+		
+		this.animacje.statek.obrazek=this.obrazki.statek;
+		this.animacje.statek.szerokosc_zrodla=this.obrazki.statek.width;
+		this.animacje.statek.wysokosc_zrodla=this.obrazki.statek.height;
+		
+		this.animacje.statek.dlugosc_klatki=1;
+		this.animacje.statek.liczba_klatek=1;
+		
+		this.animacje.statek.rozmiar.x=this.rozmiar.x;
+		this.animacje.statek.rozmiar.y=this.rozmiar.y;
+		
+		this.animacje.statek.pozycja.x=this.pozycja.x;
+		this.animacje.statek.pozycja.y=this.pozycja.y;
+		this.animacje.statek.orientacja=this.orientacja;
+		
+		this.animacje.statek.zapetl=true;
+		this.animacje.statek.animuj=false;
+		this.animacje.statek.pokaz=true;
+		this.animacje.statek.aktualna_klatka=0;
+		
+		//obrazek: ciag
+		this.animacje.ciag=this.gra.rysownik.dodajAnimacje();
+		
+		this.animacje.ciag.obrazek=this.obrazki.ciag;
+		this.animacje.ciag.szerokosc_zrodla=this.obrazki.ciag.width;
+		this.animacje.ciag.wysokosc_zrodla=this.obrazki.ciag.height;
+		
+		this.animacje.ciag.dlugosc_klatki=1;
+		this.animacje.ciag.liczba_klatek=1;
+		
+		this.animacje.ciag.rozmiar.x=this.rozmiar.x;
+		this.animacje.ciag.rozmiar.y=this.rozmiar.y;
+		
+		this.animacje.ciag.pozycja.x=this.pozycja.x;
+		this.animacje.ciag.pozycja.y=this.pozycja.y;
+		this.animacje.ciag.orientacja=this.orientacja;
+		
+		this.animacje.ciag.zapetl=true;
+		this.animacje.ciag.animuj=false;
+		this.animacje.ciag.pokaz=false;
+		this.animacje.ciag.aktualna_klatka=0;
+		
+		//obrazek lewo
+		this.animacje.lewo=this.gra.rysownik.dodajAnimacje();
+		
+		this.animacje.lewo.obrazek=this.obrazki.lewo;
+		this.animacje.lewo.szerokosc_zrodla=this.obrazki.lewo.width;
+		this.animacje.lewo.wysokosc_zrodla=this.obrazki.lewo.height;
+		
+		this.animacje.lewo.dlugosc_klatki=1;
+		this.animacje.lewo.liczba_klatek=1;
+		
+		this.animacje.lewo.rozmiar.x=this.rozmiar.x;
+		this.animacje.lewo.rozmiar.y=this.rozmiar.y;
+		
+		this.animacje.lewo.pozycja.x=this.pozycja.x;
+		this.animacje.lewo.pozycja.y=this.pozycja.y;
+		this.animacje.lewo.orientacja=this.orientacja;
+		
+		this.animacje.lewo.zapetl=true;
+		this.animacje.lewo.animuj=false;
+		this.animacje.lewo.pokaz=false;
+		this.animacje.lewo.aktualna_klatka=0;
+		
+		//obrazek prawo
+		this.animacje.prawo=this.gra.rysownik.dodajAnimacje();
+		
+		this.animacje.prawo.obrazek=this.obrazki.prawo;
+		this.animacje.prawo.szerokosc_zrodla=this.obrazki.prawo.width;
+		this.animacje.prawo.wysokosc_zrodla=this.obrazki.prawo.height;
+		
+		this.animacje.prawo.dlugosc_klatki=1;
+		this.animacje.prawo.liczba_klatek=1;
+		
+		this.animacje.prawo.rozmiar.x=this.rozmiar.x;
+		this.animacje.prawo.rozmiar.y=this.rozmiar.y;
+		
+		this.animacje.prawo.pozycja.x=this.pozycja.x;
+		this.animacje.prawo.pozycja.y=this.pozycja.y;
+		this.animacje.prawo.orientacja=this.orientacja;
+		
+		this.animacje.prawo.zapetl=true;
+		this.animacje.prawo.animuj=false;
+		this.animacje.prawo.pokaz=false;
+		this.animacje.prawo.aktualna_klatka=0;
+		
+		//przeskalowanie konturu
+		var skala={
+			"x":this.rozmiar.x/this.obrazki.statek.width,
+			"y":this.rozmiar.y/this.obrazki.statek.height
+		};
+		for(n in this.obrazki.statek.kontur){
+			this.kontur[n]={
+				"x":this.obrazki.statek.kontur[n].x*skala.x,
+				"y":this.obrazki.statek.kontur[n].y*skala.y,
+				"kat":this.obrazki.statek.kontur[n].kat
+			};
+			this.kontur[n].promien=Math.sqrt(Math.pow(this.kontur[n].x,2)+Math.pow(this.kontur[n].y,2));
+		}
+		//console.log(this.kontur);
+		
+		//usun referencje
+		delete(this.obrazki);
+	}
+	
+	this.dajPrawdziwyKontur=function(){
+		var obrocony_kontur=new Array();
+		for(n in this.kontur){//zrobienie konturu
+			obrocony_kontur[n]={
+				"x":this.pozycja.x+Math.cos(this.orientacja+this.kontur[n].kat)*this.kontur[n].promien,
+				"y":this.pozycja.y+Math.sin(this.orientacja+this.kontur[n].kat)*this.kontur[n].promien
+			};
+		}
+		return obrocony_kontur;
+	}
+	
+	this.klatka=function(dt){//klatka symulacji, bez rysowania
+		this.kinematyka(dt);
+		this.prawdziwy_kontur=this.dajPrawdziwyKontur();
+			
+		//ruch obrotowy
+		this.lewo=0;
+		this.prawo=0;
+		if(this.gra.przycisniete_klawisze[this.sterowanie.lewo])this.lewo=1;
+		if(this.gra.przycisniete_klawisze[this.sterowanie.prawo])this.prawo=1;
+		this.przyspieszenie_katowe=this.gra.parametry.statki.przyspieszenie_katowe*(this.lewo-this.prawo);
+		
+		
+		//ruch liniowy
+		this.ciag=0;
+		if(this.gra.przycisniete_klawisze[this.sterowanie.ciag])this.ciag=1;
+		this.przysieszenie.x=this.gra.parametry.statki.przyspieszenie*Math.cos(this.orientacja)*this.ciag;//rozbijanie przyspieszenia na skladowe
+		this.przysieszenie.y=this.gra.parametry.statki.przyspieszenie*Math.sin(this.orientacja)*this.ciag;
+		
+		//strzelanie
+		this.pozostaly_czas_ladowania-=dt;
+		if(this.pozostaly_czas_ladowania<=0){
+			this.pozostaly_czas_ladowania=0;
+			if(this.gra.przycisniete_klawisze[this.sterowanie.strzal]){
+				this.pozostaly_czas_ladowania=this.gra.parametry.statki.czas_ladowania;
+				
+				var pocisk=this.gra.dodajPocisk();//tworzenie pocisku
+				//console.log(this.gra.statki);
+				//pocisk.typ="pocisk";
+				pocisk.pozycja.x=this.pozycja.x+this.rozmiar.x*0.5*Math.cos(this.orientacja);
+				pocisk.pozycja.y=this.pozycja.y+this.rozmiar.x*0.5*Math.sin(this.orientacja);
+				pocisk.predkosc.x=this.predkosc.x+this.gra.parametry.pociski.predkosc_poczatkowa*Math.cos(this.orientacja);
+				pocisk.predkosc.y=this.predkosc.y+this.gra.parametry.pociski.predkosc_poczatkowa*Math.sin(this.orientacja);
+				pocisk.orientacja=this.orientacja;
+				pocisk.predkosc_katowa=this.predkosc_katowa
+				//console.log(pocisk);
+				//this.gra.stop();
+				
+				this.predkosc.x-=this.gra.parametry.statki.odrzut_przy_strzale*Math.cos(this.orientacja);//odrzut
+				this.predkosc.y-=this.gra.parametry.statki.odrzut_przy_strzale*Math.sin(this.orientacja);
+			}
+		}
+		
+		//przesuniecie sprite;a
+		this.animacje.statek.pozycja.x=this.pozycja.x;
+		this.animacje.statek.pozycja.y=this.pozycja.y;
+		this.animacje.statek.orientacja=this.orientacja;
+		
+		this.animacje.ciag.pozycja.x=this.pozycja.x;
+		this.animacje.ciag.pozycja.y=this.pozycja.y;
+		this.animacje.ciag.orientacja=this.orientacja;
+		
+		this.animacje.lewo.pozycja.x=this.pozycja.x;
+		this.animacje.lewo.pozycja.y=this.pozycja.y;
+		this.animacje.lewo.orientacja=this.orientacja;
+		
+		this.animacje.prawo.pozycja.x=this.pozycja.x;
+		this.animacje.prawo.pozycja.y=this.pozycja.y;
+		this.animacje.prawo.orientacja=this.orientacja;
+		
+		//pokazywanie/ukrywanie spriteow
+		this.animacje.ciag.pokaz=(this.ciag==1);
+		this.animacje.lewo.pokaz=(this.lewo==1);
+		this.animacje.prawo.pokaz=(this.prawo==1);
+		
+	}
+	
+}
+
+function Pocisk(gra,id){
+	this.__proto__=new Cialo();//dziedziczenie z ciała
+	
+	this.id=id;
+	this.gra=gra;
+	
+	this.animacja;
+	this.obrazki;
+	//this.skala=this.gra.parametry.pociski.skala;
+	
+	this.rozmiar={//m
+		"x":this.gra.parametry.pociski.rozmiar.x,
+		"y":this.gra.parametry.pociski.rozmiar.y
+	};
+	
+	this.czas_od_wystrzelenia=0;
+	
+	this.przygotuj=function(){
+		this.animacja=this.gra.rysownik.dodajAnimacje();
+		
+		this.animacja.obrazek=this.obrazki.pocisk;
+		this.animacja.szerokosc_zrodla=this.obrazki.pocisk.height;
+		this.animacja.wysokosc_zrodla=this.obrazki.pocisk.width;
+		
+		this.animacja.dlugosc_klatki=1;
+		this.animacja.liczba_klatek=1;
+		
+		this.animacja.rozmiar.x=this.rozmiar.x;
+		this.animacja.rozmiar.y=this.rozmiar.y;
+		
+		this.animacja.pozycja.x=this.pozycja.x;
+		this.animacja.pozycja.y=this.pozycja.y;
+		this.animacja.orientacja=this.orientacja;
+		
+		this.animacja.zapetl=true;
+		this.animacja.animuj=false;
+		this.animacja.pokaz=true;
+		this.animacja.aktualna_klatka=0;
+	}
+	
+	this.klatka=function(dt){
+		this.kinematyka(dt);
+		
+		this.czas_od_wystrzelenia+=dt;//samozniszczenie po czasie
+		if(this.czas_od_wystrzelenia>=this.gra.parametry.pociski.czas_zycia)this.usun();
+		
+		//przesuniecie obrazka
+		this.animacja.pozycja.x=this.pozycja.x;
+		this.animacja.pozycja.y=this.pozycja.y;
+		this.animacja.orientacja=this.orientacja;
+	}
+	
+	
+	this.usun=function(){
+		this.animacja.usun();
+		delete(gra.pociski[this.id]);
+	}
+	/*this.rysuj=function(){
+		this.gra.rysownik.rysujObrazek(
+				this.obrazki.pocisk,
+				0,0,200,200,
+				this.pozycja.x,this.pozycja.y,200*this.skala,200*this.skala,
+				this.orientacja);
+	}*/
+}
+
+function Asteroida(gra,id){
+	this.__proto__=new Cialo();//dziedziczenie
+	
+	this.id=id;
+	this.gra=gra;
+	
+	
+	this.promien;
+	this.kontur=new Array();
+	this.prawdziwy_kontur=new Array();
+	this.maksymalny_promien;
+	this.rysuj_obrazek=false;
+	this.obrazek_zrodlowy;
+	this.obrazek=document.createElement("canvas");
+	this.animacja;
+	
+	this.pozostala_liczba_rozpadow=0;
+	//this.obrocony_kontur=new Array();
+	
+	this.przygotuj=function(){
+		this.animacja=this.gra.rysownik.dodajAnimacje();
+		
+		this.animacja.obrazek=this.obrazek;
+		this.animacja.szerokosc_zrodla=this.obrazek.height;
+		this.animacja.wysokosc_zrodla=this.obrazek.width;
+		
+		this.animacja.dlugosc_klatki=1;
+		this.animacja.liczba_klatek=1;
+		
+		this.animacja.rozmiar.x=this.maksymalny_promien*2;
+		this.animacja.rozmiar.y=this.maksymalny_promien*2;
+		
+		this.animacja.pozycja.x=this.pozycja.x;
+		this.animacja.pozycja.y=this.pozycja.y;
+		this.animacja.orientacja=this.orientacja;
+		
+		this.animacja.zapetl=true;
+		this.animacja.animuj=false;
+		this.animacja.pokaz=true;
+		this.animacja.aktualna_klatka=0;
+	}
+	
+	this.generujKsztalt=function(promien,rozrzut_promienia,liczba_wierzcholkow,rozrzut_kata){
+		this.promien=promien;
+		this.kontur=new Array();
+		var dkat=Math.PI*2/liczba_wierzcholkow;
+		this.maksymalny_promien=0;
+		
+		for(var a=0;a<liczba_wierzcholkow;a++){
+			this.kontur[a]={
+				"promien":promien*(random(-rozrzut_promienia,rozrzut_promienia)+1),
+				"kat":a*dkat
+			}
+			this.kontur[a].x=this.kontur[a].promien*Math.cos(this.kontur[a].kat);
+			this.kontur[a].y=this.kontur[a].promien*Math.sin(this.kontur[a].kat);
+			
+			if(this.kontur[a].promien>this.maksymalny_promien)this.maksymalny_promien=this.kontur[a].promien;
+		}
+		
+		/*this.kontur.sort(function(a,b){
+			return a.kat-b.kat;
+		});*/
+		
+		//this.maksymalny_promien=(1+rozrzut_promienia)*promien;
+	}
+	
+	this.wytnijObrazek=function(){
+		//alert("wycinanie");
+		//this.obrazek_zrodlowy=img;
+		//this.rysuj_obrazek=true;
+		
+		var skala=Math.max(this.gra.rysownik.skala.x,this.gra.rysownik.skala.y);
+		var rozmiar={
+			"x":(this.maksymalny_promien*2)*skala,
+			"y":(this.maksymalny_promien*2)*skala
+		};
+		
+		this.obrazek.width=rozmiar.x;
+		this.obrazek.height=rozmiar.y;
+		
+		var r=this.obrazek.getContext("2d");
+		//alert("x "+x+", y"+y);
+		
+		r.clearRect(0,0,rozmiar.x,rozmiar.y);
+		
+		r.save();
+		r.beginPath();
+		for(var n=0,l=this.kontur.length;n<l;n++){
+			if(n>=1){
+				r.lineTo(this.kontur[n].x*skala+rozmiar.x/2,-this.kontur[n].y*skala+rozmiar.x/2);
+			}else{
+				r.moveTo(this.kontur[n].x*skala+rozmiar.x/2,-this.kontur[n].y*skala+rozmiar.x/2);
+			}
+		}
+		r.closePath();
+		r.clip();
+		
+		if(this.rysuj_obrazek){
+			var x=random(0,this.obrazek_zrodlowy.width-rozmiar.x);
+			var y=random(0,this.obrazek_zrodlowy.height-rozmiar.y);
+			
+			r.drawImage(
+				this.obrazek_zrodlowy,
+				x,y,rozmiar.x,rozmiar.y,
+				0,0,rozmiar.x,rozmiar.y);
+		}else{
+			r.fillStyle="white";
+			//var rgb=hsv2rgb(random(0,360),1,255);
+			//r.fillStyle="rgba("+Math.round(rgb[0])+","+Math.round(rgb[1])+","+Math.round(rgb[2])+",1)";
+			r.fillRect(0,0,rozmiar.x,rozmiar.y);
+		}
+		r.strokeStyle="black";
+		r.stroke();
+		
+		r.restore();
+		
+		/*r.drawImage(
+			img,
+			0,0,this.maksymalny_promien*2,this.maksymalny_promien*2);*/
+	}
+	
+	this.dajPrawdziwyKontur=function(){
+		var obrocony_kontur=new Array();
+		for(n in this.kontur){
+			obrocony_kontur[n]={
+				"x":this.pozycja.x+Math.cos(this.orientacja+this.kontur[n].kat)*this.kontur[n].promien,
+				"y":this.pozycja.y+Math.sin(this.orientacja+this.kontur[n].kat)*this.kontur[n].promien
+			};
+		}
+		return obrocony_kontur;
+	}
+	
+	this.klatka=function(dt){
+		this.kinematyka(dt);
+		this.prawdziwy_kontur=this.dajPrawdziwyKontur();
+		
+		//przesuniecie obrazka
+		this.animacja.pozycja.x=this.pozycja.x;
+		this.animacja.pozycja.y=this.pozycja.y;
+		this.animacja.orientacja=this.orientacja;
+	}
+	
+	this.rozpad=function(){
+		if(this.pozostala_liczba_rozpadow>0){//jeśli moze sie jeszcze rozpasc//jesli promien nie za maly
+			//losowanie liczby nowopowstalych
+			var b=random_c(this.gra.parametry.asteroidy.minimalna_liczba_asteroid_powstajaych_po_rozpadzie,this.gra.parametry.asteroidy.maksymalna_liczba_asteroid_powstajaych_po_rozpadzie);
+			
+			for(var a=0;a<b;a++){
+				//alert("asteroida");
+				var asteroida=this.gra.dodajAsteroide();
+				var kat=random(0,Math.PI*2);
+				var v=random(0,this.gra.parametry.asteroidy.maksymalna_predkosc_poczatkowa);
+				var promien=this.promien*(1-this.gra.parametry.asteroidy.spadek_promienia);
+				
+				asteroida.generujKsztalt(
+					promien,
+					this.gra.parametry.asteroidy.rozrzut_promienia,
+					this.gra.parametry.asteroidy.liczba_wierzcholkow);
+				
+				asteroida.predkosc={//predkosc tej+random
+					"x":this.predkosc.x+v*Math.cos(kat),
+					"y":this.predkosc.y+v*Math.sin(kat)
+					};
+				asteroida.pozycja={//pozycja tej+troche rozrzutu zgodnego z kierunkiem predkosci
+					"x":this.pozycja.x+(this.promien-asteroida.promien)*Math.cos(kat),
+					"y":this.pozycja.y+(this.promien-asteroida.promien)*Math.sin(kat)
+					};
+				asteroida.predkosc_katowa=this.predkosc_katowa+random(-this.gra.parametry.asteroidy.maksymalna_poczatkowa_predkosc_katowa,this.gra.parametry.asteroidy.maksymalna_poczatkowa_predkosc_katowa);
+				//if(this.rysuj_obrazek)asteroida.wytnijObrazek(this.obrazek_zrodlowy);
+				asteroida.pozostala_liczba_rozpadow=this.pozostala_liczba_rozpadow-1;
+				
+				asteroida.obrazek_zrodlowy=this.obrazek_zrodlowy;
+				asteroida.rysuj_obrazek=this.rysuj_obrazek;
+				asteroida.wytnijObrazek();
+				asteroida.przygotuj();
+			}
+		}
+	}
+	
+	this.usun=function(){
+		this.animacja.usun();
+		delete(this.gra.asteroidy[this.id]);
+	}
+
+}
+
+function Animacja(){
+	//this.__proto__=new Cialo();//dziedziczenie
+	this.gra;
+	this.id;
+	//this.rysownik;
+	this.obrazek;
+	
+	this.pozycja={"x":0,"y":0};//m
+	this.orientacja=0;//rad
+	this.wysokosc_zrodla=100;//px
+	this.szerokosc_zrodla=100;//px
+	this.rozmiar={"x":100,"y":100};//m
+	
+	this.czas=0;//s
+	//this.fps=1;//1/s
+	this.dlugosc_klatki=1;//s
+	this.liczba_klatek=1;
+	this.aktualna_klatka=0;
+	
+	this.zapetl=true;
+	//this.bezwladnosc=false;
+	this.animuj=true;
+	this.pokaz=true;
+	
+	this.usun=function(){
+		delete(this.gra.rysownik.animacje[this.id]);
+	}
+	
+	this.rysuj=function(dt){
+		//if(this.bezwladnosc)this.kinematyka(dt);
+		if(this.animuj){
+			this.czas+=dt;
+			this.aktualna_klatka=Math.floor(this.czas/this.dlugosc_klatki);
+		}
+		
+		if(this.aktualna_klatka>=this.liczba_klatek){
+			this.aktualna_klatka-=this.liczba_klatek;
+			this.czas-=this.liczba_klatek*this.dlugosc_klatki;
+			
+			if(!this.zapetl){
+				this.usun();
+				//zniszcz
+			}
+		}
+		
+		if(this.pokaz){
+			this.gra.rysownik.rysujObrazek(
+				this.obrazek,
+				this.aktualna_klatka*this.szerokosc_zrodla,0,this.szerokosc_zrodla,this.wysokosc_zrodla,
+				this.pozycja.x,this.pozycja.y,this.rozmiar.x,this.rozmiar.y,
+				this.orientacja
+			);
+		}
+		
+	}
+	
+	
+}
+
+function Rysownik(){
+	this.gra;
+	this.obrazki=new Array();
+	this.canvas;
+	this.plotno;
+	
+	this.rozmiar_plotna;//px
+	this.skala;//px/m
+	this.poczatek;//m
+	this.koniec;//m
+	this.rozmiar;//m
+	this.orientacja;//rad
+	
+	this.animacje=new Array();
+	this.liczba_animacji=0;
+	
+	this.przygotuj=function(){
+		this.animacje=new Array();
+		this.liczba_animacji=0;
+	}
+	
+	this.inicjuj=function(canvas,rozmiar_plotna){
+		this.rozmiar_plotna={
+			"x":rozmiar_plotna.x,
+			"y":rozmiar_plotna.y
+		};
+		this.canvas=canvas;
+		
+		$(this.canvas).attr({
+			"width":this.rozmiar_plotna.x,
+			"height":this.rozmiar_plotna.y
+			
+		}).css({
+			"border-width":"5px",
+			"border-style":"solid",
+			"border-color":"black"
+		});
+		this.plotno=this.canvas.getContext("2d");
+	}
+	
+	this.ustawWidok=function(centrum,rozmiar,kat){
+		this.rozmiar={
+			"x":rozmiar.x,
+			"y":rozmiar.y
+		};
+		this.poczatek={
+			"x":centrum.x-0.5*this.rozmiar.x,
+			"y":centrum.y-0.5*this.rozmiar.y
+		};
+		this.koniec={
+			"x":centrum.x+0.5*this.rozmiar.x,
+			"y":centrum.y+0.5*this.rozmiar.y
+		};
+		this.skala={
+			"x":this.rozmiar_plotna.x/this.rozmiar.x,
+			"y":this.rozmiar_plotna.y/this.rozmiar.y
+		}
+		this.orientacja=kat;
+	}
+	
+	this.dodajAnimacje=function(){
+		var a=new Animacja();
+		this.animacje[this.liczba_animacji]=a;
+		a.id=this.liczba_animacji;
+		a.gra=this.gra;
+		this.liczba_animacji++;
+		
+		return a;
+	}
+	
+	this.klatka=function(dt){
+		this.czysc();
+		for(n in this.animacje){
+			this.animacje[n].rysuj(dt);
+		}
+	}
+	
+	this.wsp2px=function(wsp){
+		var px=new Object();
+		px.x=(wsp.x-this.poczatek.x)*this.skala.x;
+		px.y=(-1)*(wsp.y-this.koniec.y)*this.skala.y;
+		return px;
+	}
+	
+	this.rysujObrazek=function(img,x_p,y_p,sx_p,sy_p,x_k,y_k,sx_k,sy_k,kat){//_p-zrodlo (w pikselach), _k-przeznaczenie(w metrach)
+		//console.log("rysuj obrazek");
+		var px=this.wsp2px({"x":x_k,"y":y_k});
+		
+		this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+		
+		//magic - dont touch!
+		this.plotno.translate(this.rozmiar_plotna.x/2,this.rozmiar_plotna.y/2);
+		this.plotno.rotate(this.orientacja);
+		this.plotno.translate(-this.rozmiar_plotna.x/2,-this.rozmiar_plotna.y/2);
+		//koniec magii
+		
+		this.plotno.translate(px.x,px.y);
+		this.plotno.rotate(-kat);
+		this.plotno.scale(this.skala.x,this.skala.y);
+		this.plotno.drawImage(
+			img,
+			x_p,y_p,sx_p,sy_p,
+			-sx_k/2,-sy_k/2,sx_k,sy_k);
+		this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+		
+	}
+	
+	/*this.rysujKontur=function(kontur,x,y,kat,kolor){//obiekt konturu, x,y - gdzie wstawiamy
+		if(kontur.length<=0)return 0;
+		
+		var px=this.wsp2px({"x":x,"y":y});
+		//var px2;
+		
+		this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+		this.plotno.translate(px.x,px.y);
+		this.plotno.rotate(-kat);
+		
+		this.plotno.beginPath();
+		for(var n=0,l=kontur.length;n<l;n++){
+			if(n>=1){
+				this.plotno.lineTo(kontur[n].x,-kontur[n].y);
+			}else{
+				this.plotno.moveTo(kontur[n].x,-kontur[n].y);
+			}
+		}
+		this.plotno.closePath();
+		
+		if(kontur.length<=2){
+			this.plotno.strokeStyle=kolor;
+			this.plotno.stroke();
+		}else{
+			this.plotno.fillStyle=kolor;
+			this.plotno.fill();
+			this.plotno.strokeStyle="black";
+			this.plotno.stroke();
+		}
+		
+		this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+	}*/
+	
+	/*this.rysujProstokat=function(x,y,sx,sy,kat,kolor){//x,y - wsp środka, sx,sy-rozmiar (wszystko w metrach), kat - kat obrócenia
+		var px=this.wsp2px({"x":x,"y":y});
+		sx*=this.skala;
+		sy*=this.skala;
+		//x=px.x-0.5*sx;
+		//y=px.y-0.5*sy;
+		
+		this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+		
+		this.plotno.translate(px.x,px.y);
+		this.plotno.rotate(-kat);
+		
+		this.plotno.fillStyle=kolor;
+		this.plotno.fillRect(-sx/2,-sy/2,sx,sy);
+		this.plotno.setTransform(1, 0, 0, 1, 0, 0);
+	}*/
+	
+	this.czysc=function(){
+		this.plotno.fillStyle="black";
+		this.plotno.fillRect(0,0,this.rozmiar_plotna.x,this.rozmiar_plotna.y);
+	}
+	
+	this.ladujObrazek=function(src,dst){
+		this.obrazki[dst]=new Image();
+		this.obrazki[dst].src=src;
+		//alert("obrazek "+dst);
+		//alert("zaladowany "+this.obrazki[dst].complete);
+	}
+	
+	this.czyObrazkiZaladowane=function(){
+		var zaladowane=true;
+		for(n in this.obrazki){
+			if(!this.obrazki[n].complete)zaladowane=false;
+			//alert("obrazek: "+n+", zaladowany: "+this.obrazki[n].complete);
+			//alert("zaladowany "+this.obrazki[n].complete);
+		}
+		return zaladowane;
+		//return false;
+	}
+}
+
+function Gra(pojemnik){
+	this.obraz=new Object();
+	this.obraz.pojemnik=pojemnik;
+	this.obraz.canvas;
+	//this.obraz.kontrolki;
+	
+	window.gra=this;//przypisanie sie do okna
+	
+	this.parametry={
+		"gra":{
+			//"dt":0.01
+			"minimalne_dt":0.05
+		},
+		
+		"pole":{
+			"rozmiar":{
+				"x":100,
+				"y":100
+			},
+			"rozmiar_plotna":{
+				"x":500,
+				"y":500
+			},
+			"kolor_tla":"black"
+		},
+		
+		//statki
+		"statki":{
+			"przyspieszenie":20,//m/s*s
+			"przyspieszenie_katowe":3,//rad/s*s
+			"czas_ladowania":0.3,//s
+			"odrzut_przy_strzale":1.5,//m/s
+			//"skala":0.2,
+			"rozmiar":{//m
+				"x":15,
+				"y":15
+			}
+		},
+		
+		//pociski
+		"pociski":{
+			"predkosc_poczatkowa":30,//m/s
+			"czas_zycia":1,//s
+			//"skala":0.07,
+			"rozmiar":{//m
+				"x":2,
+				"y":2
+			}
+		},
+		
+		//asteroidy
+		"asteroidy":{
+			"poczatkowa_liczba":2,
+			"liczba_wierzcholkow":5,
+			"rozrzut_promienia":0.3,
+			
+			"liczba_rozpadow":3,
+			"minimalny_poczatkowy_promien":10,
+			"maksymalny_poczatkowy_promien":10,
+			//"spadek_powierzchni":0,
+			"spadek_promienia":0.3,
+			
+			//"minimalny_promien":4,
+			"minimalna_liczba_asteroid_powstajaych_po_rozpadzie":3,
+			"maksymalna_liczba_asteroid_powstajaych_po_rozpadzie":3,
+			//"minimalny_spadek_promienia":3,
+			//"maksymalny_spadek_promienia":3,
+			"maksymalna_predkosc_poczatkowa":5,//m/s
+			"maksymalna_poczatkowa_predkosc_katowa":0.5//rad/s
+		},
+		
+		"sterowanie":{
+			"pauza":32,//spacja
+			"ciag":87,//w
+			"lewo":65,//a
+			"prawo":68,//d
+			"strzal":13,//enter
+			"restart":82//r
+			/*"pauza":13,//enter
+			"ciag":38,//^
+			"lewo":37,//<
+			"prawo":39,//>
+			"strzal":32,//spacja
+			"restart":82//r*/
+		}
+	}
+	
+	this.wlaczona=false;
+	this.gotowa=false;
+	//this.interwal_klatek;
+	//this.dt=this.parametry.gra.dt;
+	//this.liczba_rysowan=0;
+	this.liczba_klatek=0;
+	this.ostatnie_odswierzenie_fps;
+	this.czas_poprzedniej_klatki;
+	
+	//statki
+	this.liczba_statkow=0;
+	this.statki=new Array();
+	
+	//pociski
+	this.liczba_pociskow=0;
+	this.pociski=new Array();
+	
+	//asteroidy
+	this.liczba_asteroid=0;
+	this.asteroidy=new Array();
+	
+	//klawisze
+	this.przycisniete_klawisze=new Array();
+	
+	this.sterowanie=new Object();
+	this.sterowanie.pauza=this.parametry.sterowanie.pauza;
+	this.sterowanie.restart=this.parametry.sterowanie.restart;
+	
+	//rysownik
+	//this.rozmiar={"x":1200,"y":600};
+	this.rysownik=new Rysownik();
+	this.rysownik.gra=this;
+	
+	
+	this.dodajObslugeKlawiszy=function(){
+		this.przycisnieteKlawisze=new Array();
+		
+		$(document).keydown({"gra":this},function(event){//funkcja wywoływana przy naciśnięciu klawisza
+			event.data.gra.przycisniete_klawisze[event.keyCode]=true;//zapisz do tabeli, że ten przycisk jest naciśnięty
+			//event.data.gra.wyswietlPrzycisnieteKlawisze();
+			return false;
+		});
+		
+		$(document).keyup({"gra":this},function(event){//funkcja wywoływana przy "odciśnięciu" klawisza
+			event.data.gra.przycisniete_klawisze[event.keyCode]=false;//zapisz do tabeli, że ten przycisk nie jest naciśnięty
+			//event.data.gra.wyswietlPrzycisnieteKlawisze();
+			return false;
+		});
+	}
+	
+	this.stop=function(){
+		this.wlaczona=false;
+	}
+	
+	this.start=function(){
+		this.wlaczona=true;
+	}
+	
+	this.klatka=function(dt){
+		//alert("klatka");
+		//alert("dt "+dt);
+		this.liczba_klatek++;
+		
+		
+		if(this.gotowa){
+			
+			//sprawdzanie pauzy
+			if(this.przycisniete_klawisze[this.sterowanie.pauza]){
+				//alert("spacja");
+				this.przycisniete_klawisze[this.sterowanie.pauza]=false;
+				if(this.wlaczona){
+					this.stop();
+				}else{
+					this.start();
+				}
+			}
+			
+			//spradzenie restartu
+			if(this.przycisniete_klawisze[this.sterowanie.restart]){
+				this.stop();
+				this.przygotuj();
+				this.przycisniete_klawisze[this.sterowanie.restart]=false;
+			}
+			
+			//symulacja
+			if(this.wlaczona){
+				
+				for(n in this.statki){
+					this.statki[n].klatka(dt);
+				}
+				for(n in this.pociski){
+					this.pociski[n].klatka(dt);
+				}
+				for(n in this.asteroidy){
+					this.asteroidy[n].klatka(dt);
+				}
+				
+				this.wykryjKolizje();
+				
+			}
+			
+			//ustawienie widoku
+			//odkomentować aby układ byl zwiazany ze statkiem
+			//this.rysownik.ustawWidok(this.statki[0].pozycja,this.parametry.pole.rozmiar,this.statki[0].orientacja-Math.PI/2);
+			
+			
+			//rysowanie
+			this.rysownik.klatka(dt);//rysuj
+			
+			//rysowanie pauzy/start
+			if(this.wlaczona){//pauza/start
+				this.rysownik.plotno.drawImage(
+					this.rysownik.obrazki.play,
+					0,0,200,200,
+					5,5,10,10
+				);
+			}else{
+				this.rysownik.plotno.drawImage(
+					this.rysownik.obrazki.pause,
+					0,0,200,200,
+					5,5,10,10
+				);
+			}
+			
+			
+		}else{
+			if(this.przycisniete_klawisze[this.sterowanie.pauza]){
+				//alert("spacja");
+				this.przycisniete_klawisze[this.sterowanie.pauza]=false;
+				this.przygotuj();
+			}
+		}
+	
+	}
+	
+	this.wykryjKolizje=function(){
+		//kolizje pocisk-asteroida
+		var trafiona=false;
+		for(asteroida in this.asteroidy){
+			trafiona=false;
+			for(pocisk in this.pociski){
+				if(//czy jest blisko (w kwadracie)
+					(Math.abs(this.pociski[pocisk].pozycja.x-this.asteroidy[asteroida].pozycja.x)<=this.asteroidy[asteroida].maksymalny_promien)&&
+					(Math.abs(this.pociski[pocisk].pozycja.y-this.asteroidy[asteroida].pozycja.y)<=this.asteroidy[asteroida].maksymalny_promien))
+				{
+					if(this.czyPunktWKonturze(this.pociski[pocisk].pozycja,this.asteroidy[asteroida].prawdziwy_kontur)){//czy jest w konturze
+						trafiona=true;
+						
+						var a=this.rysownik.dodajAnimacje();
+						a.obrazek=this.rysownik.obrazki.blysk;
+						a.zapetl=false;
+						a.dlugosc_klatki=1/10;
+						a.liczba_klatek=1;
+						a.szerokosc_zrodla=this.rysownik.obrazki.blysk.width;
+						a.wysokosc_zrodla=this.rysownik.obrazki.blysk.height;
+						a.rozmiar.x=10;
+						a.rozmiar.y=10;
+						a.pozycja.x=this.pociski[pocisk].pozycja.x;
+						a.pozycja.y=this.pociski[pocisk].pozycja.y;
+						//a.predkosc.x=this.asteroidy[asteroida].predkosc.x;
+						//a.predkosc.y=this.asteroidy[asteroida].predkosc.y;
+						//a.orientacja=random(0,2*Math.PI);
+						a.orientacja=0;
+						
+						this.pociski[pocisk].usun();
+					}
+				}
+			}
+			
+			if(trafiona){
+				this.asteroidy[asteroida].rozpad();
+				this.asteroidy[asteroida].usun();
+			}
+		}
+		
+		//kolizje statki-asteroidy
+		var trafiony=false;
+		for(statek in this.statki){
+			trafiony=false;
+			for(asteroida in this.asteroidy){//kolizje z pociskami
+				if(//czy jest blisko
+					(Math.abs(this.asteroidy[asteroida].pozycja.x-this.statki[statek].pozycja.x)<=(this.statki[statek].maksymalny_promien+this.asteroidy[asteroida].maksymalny_promien))&&
+					(Math.abs(this.asteroidy[asteroida].pozycja.y-this.statki[statek].pozycja.y)<=(this.statki[statek].maksymalny_promien+this.asteroidy[asteroida].maksymalny_promien)))
+				{
+					//czy ktorkolwiek z punktow rakiety w konturze asteroidy
+					for(n in this.statki[statek].prawdziwy_kontur){
+						if(this.czyPunktWKonturze(this.statki[statek].prawdziwy_kontur[n],this.asteroidy[asteroida].prawdziwy_kontur)){
+							trafiony=true;
+						}
+					}
+					
+					//czy ktorykolwiek z punktow asteroidy w konturze rakiety
+					for(n in this.asteroidy[asteroida].prawdziwy_kontur){
+						if(this.czyPunktWKonturze(this.asteroidy[asteroida].prawdziwy_kontur[n],this.statki[statek].prawdziwy_kontur)){
+							trafiony=true;
+						}
+					}
+					//alert("blisko!");
+				}
+				
+			}
+			
+			if(trafiony){
+				
+				this.stop();
+				this.gotowa=false;
+				
+				var a=this.rysownik.dodajAnimacje();
+				a.obrazek=this.rysownik.obrazki.blysk;
+				a.zapetl=false;
+				a.animuj=false;
+				a.dlugosc_klatki=1/10;
+				a.liczba_klatek=1;
+				a.szerokosc_zrodla=this.rysownik.obrazki.blysk.width;
+				a.wysokosc_zrodla=this.rysownik.obrazki.blysk.height;
+				a.rozmiar.x=30;
+				a.rozmiar.y=30;
+				a.pozycja.x=this.statki[statek].pozycja.x;
+				a.pozycja.y=this.statki[statek].pozycja.y;
+				//	alert("k-bo00m!");
+				//this.przygotuj();
+			}
+		}
+		
+	}
+	
+	this.petla=function(){
+		//wywolanie kolejnej klatki
+		window.requestAnimationFrame(function(){
+			gra.petla();
+		});
+		
+		//policzenie dt
+		var czas=(new Date()).getTime()/1000;
+		var dt=czas-this.czas_poprzedniej_klatki;
+		this.czas_poprzedniej_klatki=czas;
+		
+		//zabezpieczenie przed dużymi skokami czasu
+		if(dt>this.parametry.gra.minimalne_dt)dt=this.parametry.gra.minimalne_dt;
+		
+		//obsluga klatki
+		this.klatka(dt);
+	}
+	
+	this.inicjuj=function(){
+		//zrobienie canvasa
+		this.obraz.canvas=$("<canvas></canvas>").appendTo(this.obraz.pojemnik).get(0);
+		
+		//zainicjowanie rysowanika (rysuje pole...)
+		this.rysownik.inicjuj(this.obraz.canvas,this.parametry.pole.rozmiar_plotna);
+		this.rysownik.ustawWidok({"x":0,"y":0},this.parametry.pole.rozmiar,0);
+		
+		//dodanie obslugi klawiszy (handler eventów zapisujący nacisniete klawisze do tablicy)
+		this.dodajObslugeKlawiszy();
+	}
+	
+	this.dodajStatek=function(){
+		var statek=new Statek(this,this.liczba_statkow);//stwórz statek
+		statek.obrazki=this.rysownik.obrazki;
+		//statek.maksymalne_przyspieszenie=this.parametry.statki.maksymalne_przyspieszenie;
+		//statek.maksymalne_przyspieszenie_katowe=this.parametry.statki.maksymalne_przyspieszenie_katowe;
+		
+		this.statki[this.liczba_statkow]=statek;//zapisz go do tabeli
+		this.liczba_statkow++;//zwiększ liczbę statkow
+		statek.przygotuj();
+		return statek;
+		
+	}
+	
+	this.dodajPocisk=function(){
+		var pocisk=new Pocisk(this,this.liczba_pociskow);
+		pocisk.obrazki=this.rysownik.obrazki;
+		this.pociski[this.liczba_pociskow]=pocisk;//zapisz go do tabeli
+		//this.kolejka_statkow[this.liczba_statkow]=this.liczba_statkow;//dodaj jego id do tablicy losowania kolejnosci
+		this.liczba_pociskow++;//zwiększ liczbę
+		pocisk.przygotuj();
+		return pocisk;
+	}
+	
+	this.dodajAsteroide=function(){
+		var asteroida=new Asteroida(this,this.liczba_asteroid);
+		
+		
+		this.asteroidy[this.liczba_asteroid]=asteroida;
+		this.liczba_asteroid++;
+		//asteroida.przygotuj();
+		return asteroida;
+	}
+	
+	//this.czyPunktWKonturze=function(punkt,kontur){return this.isPointInPoly(kontur,punkt);}
+	this.czyPunktWKonturze=function(pt,poly){
+		//+ Jonas Raoni Soares Silva
+		//@ http://jsfromhell.com/math/is-point-in-poly [rev. #0]
+		for(var c = false, i = -1, l = poly.length, j = l - 1; ++i < l; j = i)
+			((poly[i].y <= pt.y && pt.y < poly[j].y) || (poly[j].y <= pt.y && pt.y < poly[i].y))
+			&& (pt.x < (poly[j].x - poly[i].x) * (pt.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x)
+			&& (c = !c);
+		return c;
+	}
+	
+	//funkcja pomocnicza. przeksztalca punkty z ukladu kartezjanskiego w biegunowy (z jakichś powodów jest on wygodniejszy)
+	this.konwertujKontur=function(kontur,srx,sry){
+		var x,y;//,kat;
+		for(n in kontur){
+			x=kontur[n].x-srx;
+			y=-kontur[n].y+sry;
+			
+			//kontur[n].kat=0;
+			//if(x==0)kontur[n].kat=Math.PI/2;
+			if(y==0){
+				if(x>=0)kontur[n].kat=0;
+				if(x<0)kontur[n].kat=Math.PI;
+			}
+			if(y!=0)kontur[n].kat=Math.atan(x/y);
+			
+			/*if(x>0&&y>0)kontur[n].kat=Math.PI/2-kontur[n].kat;//1 cwiartka
+			if(x<=0&&y>0)kontur[n].kat=Math.PI/2-kontur[n].kat;//2 cwiartka
+			if(x<0&&y<0)kontur[n].kat=-kontur[n].kat-Math.PI/2;//3 cwiartka
+			if(x>=0&&y<0)kontur[n].kat=-kontur[n].kat-Math.PI/2;//4 cwiartka*/
+			if(y>0)kontur[n].kat=Math.PI/2-kontur[n].kat;//1, 2 cwiartka
+			if(y<0)kontur[n].kat=-Math.PI/2-kontur[n].kat;//3, 4
+			
+			kontur[n].promien=Math.sqrt(x*x+y*y);
+			
+			//console.log("kontur.x: "+kontur[n].x+", kontur.y: "+kontur[n].y+", x: "+x+", y: "+y+", kat: "+kontur[n].kat);
+		}
+		return kontur;
+	}
+	
+	//tworzenie nowej gry
+	this.przygotuj=function(){
+		//alert("nowa gra");
+		this.gotowa=true;
+		this.stop();
+		
+		//zerowanie
+		//statki
+		this.liczba_statkow=0;
+		this.statki=new Array();
+		//pociski
+		this.liczba_pociskow=0;
+		this.pociski=new Array();
+		//asteroidy
+		this.liczba_asteroid=0;
+		this.asteroidy=new Array();
+		//klawisze
+		this.przycisniete_klawisze=new Array();
+		
+		//rysownik i animacje
+		this.rysownik.przygotuj();
+		
+		
+		//dodanie statku
+		var statek=this.dodajStatek();
+		statek.sterowanie.ciag=this.parametry.sterowanie.ciag;//sterowanie
+		statek.sterowanie.lewo=this.parametry.sterowanie.lewo;
+		statek.sterowanie.prawo=this.parametry.sterowanie.prawo;
+		statek.sterowanie.strzal=this.parametry.sterowanie.strzal;
+		statek.orientacja=Math.PI/2;//zeby byl w gore
+		
+		
+		//dodanie asteroid
+		for(var a=0;a<this.parametry.asteroidy.poczatkowa_liczba;a++){
+			//alert("asteroida");
+			var asteroida=this.dodajAsteroide();
+			asteroida.generujKsztalt(
+				random(this.parametry.asteroidy.minimalny_poczatkowy_promien,this.parametry.asteroidy.maksymalny_poczatkowy_promien),
+				this.parametry.asteroidy.rozrzut_promienia,
+				this.parametry.asteroidy.liczba_wierzcholkow);
+			/*asteroida.generujKsztalt(
+				random(this.gra.parametry.asteroidy.minimalny_spadek_promienia,this.gra.parametry.asteroidy.maksymalny_spadek_promienia),
+				this.gra.parametry.asteroidy.rozrzut_promienia,
+				this.gra.parametry.asteroidy.liczba_wierzcholkow);*/
+			asteroida.pozycja={
+				"x":random(this.rysownik.poczatek.x,this.rysownik.koniec.x),
+				"y":random(this.rysownik.poczatek.y,this.rysownik.koniec.y)
+				};
+			asteroida.predkosc={
+				"x":random(-this.parametry.asteroidy.maksymalna_predkosc_poczatkowa,this.parametry.asteroidy.maksymalna_predkosc_poczatkowa),
+				"y":random(-this.parametry.asteroidy.maksymalna_predkosc_poczatkowa,this.parametry.asteroidy.maksymalna_predkosc_poczatkowa),
+				};
+			asteroida.predkosc_katowa=random(-this.parametry.asteroidy.maksymalna_poczatkowa_predkosc_katowa,this.parametry.asteroidy.maksymalna_poczatkowa_predkosc_katowa);
+			asteroida.orientacja=random(0,Math.PI*2);
+			asteroida.pozostala_liczba_rozpadow=this.parametry.asteroidy.liczba_rozpadow;
+			asteroida.rysuj_obrazek=false;
+			asteroida.wytnijObrazek();
+			asteroida.przygotuj();
+			
+		}
+		
+	}
+	
+	$(this.obraz.pojemnik).text("ladowanie...");
+	
+	this.rysownik.ladujObrazek("statek.png","statek");
+	this.rysownik.ladujObrazek("pocisk.png","pocisk");
+	this.rysownik.ladujObrazek("propulsion.png","ciag");
+	this.rysownik.ladujObrazek("lewo.png","lewo");
+	this.rysownik.ladujObrazek("prawo.png","prawo");
+	this.rysownik.ladujObrazek("play.png","play");
+	this.rysownik.ladujObrazek("pause.png","pause");
+	this.rysownik.ladujObrazek("glare.png","blysk");
+	//this.rysownik.ladujObrazek("odlamki0.png","odlamki");
+	
+	
+	this.rysownik.obrazki.statek.kontur=[
+		{"x":-60,"y":100},
+		{"x":140,"y":0},
+		{"x":-60,"y":-100}
+	];
+	
+	this.konwertujKontur(this.rysownik.obrazki.statek.kontur,0,0);
+	//console.log(this.rysownik.obrazki.statek.kontur);
+	
+	
+	
+	
+	function sprawdz(){//sprawdzanie zaladowania obrazkow i inicjacja
+		//alert("sprawdz");
+		if(gra.rysownik.czyObrazkiZaladowane()){
+			//alert("jedziemy");
+			$(gra.obraz.pojemnik).empty();
+			gra.inicjuj();
+			$(gra.obraz.pojemnik).append("<div id='fps'></div>");
+			gra.przygotuj();
+			gra.czas_poprzedniej_klatki=(new Date()).getTime();
+			
+			
+			/*var obrazek=document.createElement("canvas");
+			var x=1000;
+			var y=1000;
+			obrazek.width=x;
+			obrazek.height=y;
+			var r=obrazek.getContext("2d");
+			
+			//czyszcznie
+			r.fillStyle="rgba(0,0,0,0)";
+			r.fillRect(0,0,x,y);
+			
+			//rysowanie ukladu
+			r.beginPath();
+			r.moveTo(x/2,y/2);//pioniwa
+			r.lineTo(x/2,0);
+			r.moveTo(x/2,y/2);//pozioma
+			r.lineTo(x,y/2);
+			r.strokeStyle="white";
+			r.lineWidth=5;
+			r.stroke();
+			
+			//podpisanie
+			r.fillStyle="white";
+			r.font="20pt monospace";
+			r.fillText("y",x/2+5,y/4);
+			r.fillText("x",3/4*x,y/2+25);
+			
+			//ramka
+			r.strokeRect(0,0,x,y);
+			
+			var a=gra.rysownik.dodajAnimacje();
+			a.obrazek=obrazek;
+			a.szerokosc_zrodla=x;//px
+			a.wysokosc_zrodla=y;
+			a.liczba_klatek=1;
+			a.dlugosc_klatki=1;
+			a.aktualna_klatka=0;
+			
+			a.rozmiar.x=100;//m
+			a.rozmiar.y=100;
+			a.pozycja.x=0;//m
+			a.pozycja.y=0;
+			a.orientacja=0;//rad
+			
+			a.pokaz=true;
+			a.animuj=false;
+			a.zapetl=true;*/
+	
+			gra.petla();
+			//
+		}else{
+			//alert("set timeout");
+			setTimeout(function(){sprawdz();},500);
+		}
+		//
+	}
+	sprawdz();
+	
+	/*setInterval(function(){//robienie klatek
+		gra.klatka(gra.dt);
+	},this.dt*1000);*/
+	
+	setInterval(function(){//wykonuj tę funckję co 500ms// wyswietlanie fpsów
+		var dt=((new Date()).getTime()-gra.ostatnie_odsiwerzenie_fps)/1000;//ile sekund minęło od ostatniego wykonania
+		var kns=Math.round((gra.liczba_klatek/dt)*10)/10;//podziel liczbę wykonanych klatek przez liczbę sekund i zaokrąglij do pierwszego miejsca po przecinku
+		//var rns=Math.round((gra.liczba_rysowan/dt)*10)/10;//to samo z rysowaniami
+		//if(fps<1)fps="-";
+		$("#fps").html("fps: "+kns);//wpisz wynik do pola o id="fps"
+		gra.ostatnie_odsiwerzenie_fps=(new Date()).getTime();//złap aktualny czas
+		gra.liczba_klatek=0;//wyzeruj liczbę obliczonych klatek
+		//gra.liczba_rysowan=0;//wyzeruj liczbę obliczonych klatek
+	},500);
+
+}
+
+$(document).ready(function(){
+	new Gra($("#pojemnik").get(0));
+	//gra.dodajObslugeKlawiszy();
+});
+
+</script>
+</head>
+
+<body>
+<div id="pojemnik"></div>
+<p>
+	JR, for the glory of mankind<br/>
+	controls: space (start/pause), W A D (thrusters), enter (shooting), R (restart)
+</p>
+
+
+</body>
+</html>
